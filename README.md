@@ -2,6 +2,17 @@
 
 MLX90642とXIAO ESP32-C3を使った自作サーモカメラ。
 
+## iPhoneで表示（Wi-Fi版）
+
+1. Arduino IDEで[firmware/wifi_camera/wifi_camera.ino](firmware/wifi_camera/wifi_camera.ino)を書き込みます。ボードは`XIAO_ESP32C3`、`USB CDC On Boot`は`Enabled`。
+2. iPhoneとXIAOをUSB-Cケーブルで接続して給電します（USB-C端子のiPhoneを使用）。
+3. iPhoneのWi-Fiで **ThermalCam** に接続します。パスワードは **thermalcam**。
+4. Safariで **http://192.168.4.1** を開きます。
+
+熱画像・最低／中央／最高温度・タップ位置の温度を表示し、表示レンジと補間を切り替えられます。インターネットやアプリは不要です。
+
+[接続手順・トラブル対処・確認範囲](docs/iphone.md)を参照してください。最初にMac給電でWi-Fi表示を確認すると切り分けやすくなります。
+
 
 ## 接続
 
@@ -21,6 +32,8 @@ XIAOとMLX90642は次の4本を接続します。
 
 I²Cアドレスは`0x66`、I²Cクロックは400 kHzです。
 
+
+## Macで表示（USBシリアル版）
 
 ### XIAOへの書き込み
 

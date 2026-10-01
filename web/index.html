@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10131a">
+  <meta name="referrer" content="no-referrer">
+  <link rel="icon" href="data:,">
+  <title>ThermalCam</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div><p class="eyebrow">MLX90642 · 32 × 24</p><h1>ThermalCam</h1></div>
+      <button id="reconnect" type="button">再接続</button>
+    </header>
+    <p id="status" role="status">接続しています…</p>
+    <p id="demo" class="notice" hidden>デモ表示です。温度は実測値ではありません。</p>
+    <figure>
+      <canvas id="image" width="640" height="480" tabindex="0" role="img"
+        aria-label="熱画像。タップまたは矢印キーで測定点を選択"
+        aria-describedby="image-hint readings">熱画像はCanvas対応ブラウザで表示できます。</canvas>
+      <figcaption id="image-hint">画像をタップすると、その位置の温度を表示します。</figcaption>
+    </figure>
+    <div class="scale" aria-hidden="true"><span id="scale-min">—</span><div id="gradient"></div><span id="scale-max">—</span></div>
+    <dl id="readings" class="readings">
+      <div><dt>最低</dt><dd id="minimum">—</dd></div>
+      <div><dt>中央</dt><dd id="center">—</dd></div>
+      <div><dt>最高</dt><dd id="maximum">—</dd></div>
+    </dl>
+    <div class="meta"><span id="picked">選択点：—</span><span id="ambient">Ta：—</span><span id="fps">0 fps</span></div>
+    <section class="controls">
+      <h2>表示</h2>
+      <div class="control-grid">
+        <label for="palette">カラー<select id="palette"><option value="iron">Iron</option><option value="gray">グレースケール</option></select></label>
+        <label for="range">温度レンジ<select id="range"><option value="auto">自動</option><option value="fixed">固定</option></select></label>
+      </div>
+      <div id="fixed-range" class="control-grid" hidden>
+        <label for="lower">下限（°C）<input id="lower" type="number" inputmode="decimal" value="20" min="-40" max="260" step="0.1" required aria-describedby="range-error"></label>
+        <label for="upper">上限（°C）<input id="upper" type="number" inputmode="decimal" value="45" min="-40" max="260" step="0.1" required aria-describedby="range-error"></label>
+      </div>
+      <p id="range-error" class="error" role="alert" hidden></p>
+      <label for="smooth" class="checkbox"><input id="smooth" type="checkbox" checked>表示をなめらかにする</label>
+    </section>
+    <footer>温度は元の32 × 24画素から読み取ります。補間は表示だけに適用します。</footer>
+    <noscript><p class="error">表示にはJavaScriptを有効にしてください。</p></noscript>
+  </main>
+  <script src="/frame.js"></script>
+  <script src="/viewer.js"></script>
+</body>
+</html>
