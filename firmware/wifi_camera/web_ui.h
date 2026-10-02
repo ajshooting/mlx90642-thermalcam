@@ -27,8 +27,15 @@ button { cursor: pointer; }
 #status[data-state="live"] { color: #9cddb7; }
 #status[data-state="error"], .error { color: #ffbdab; }
 figure { margin: 1rem 0 .5rem; }
-canvas { display: block; inline-size: 100%; block-size: auto; aspect-ratio: 4 / 3; background: #07090d; border-radius: .75rem; touch-action: pan-y; }
-canvas[data-stale="true"] { opacity: .45; }
+.viewer-stage { position: relative; aspect-ratio: 4 / 3; overflow: hidden; border-radius: .75rem; background: #07090d; }
+#camera-video { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; object-fit: contain; pointer-events: none; }
+.thermal-window { position: absolute; left: 0; top: 0; inline-size: 100%; block-size: 100%; overflow: hidden; border-radius: .35rem; }
+.thermal-window[data-mode="pip"] { outline: 2px solid #fac578; }
+#image, #edges { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; display: block; border-radius: inherit; }
+#image { opacity: var(--thermal-opacity, 1); touch-action: pan-y; }
+#image[data-stale="true"] { opacity: calc(var(--thermal-opacity, 1) * .45); }
+#edges { pointer-events: none; background: transparent; }
+.pip-label { position: absolute; top: .25rem; left: .25rem; padding: .1rem .3rem; font-size: .65rem; color: #fff; background: #10131acc; border-radius: .2rem; pointer-events: none; }
 figcaption, footer { color: #b8c0cc; font-size: .75rem; line-height: 1.6; }
 figcaption { margin-block-start: .5rem; }
 .scale { display: flex; align-items: center; gap: .75rem; color: #b8c0cc; font-size: .75rem; }
@@ -47,6 +54,14 @@ input[type="checkbox"] { inline-size: 1.25rem; min-block-size: 1.25rem; margin: 
 .notice { color: #fac578; }
 [hidden] { display: none !important; }
 @media (max-width: 340px) { .control-grid { grid-template-columns: 1fr; } }
+
+.camera-note, #camera-status { font-size: .875rem; color: #b8c0cc; line-height: 1.6; }
+a { color: #fac578; }
+input[type="range"] { display: block; inline-size: 100%; min-block-size: 44px; margin-block: .4rem 1rem; padding: 0; accent-color: #fac578; }
+output { font-variant-numeric: tabular-nums; }
+
+#pip-position-control { margin-block-end: 1rem; }
+#edge-controls { margin-block-start: 1rem; }
 </style>
 </head>
 <body>
@@ -58,9 +73,16 @@ input[type="checkbox"] { inline-size: 1.25rem; min-block-size: 1.25rem; margin: 
     <p id="status" role="status">接続しています…</p>
     <p id="demo" class="notice" hidden>デモ表示です。温度は実測値ではありません。</p>
     <figure>
+      <div id="viewer-stage" class="viewer-stage">
+      <video id="camera-video" autoplay muted playsinline hidden aria-hidden="true"></video>
+      <div id="thermal-window" class="thermal-window" data-mode="thermal">
       <canvas id="image" width="640" height="480" tabindex="0" role="img"
         aria-label="熱画像。タップまたは矢印キーで測定点を選択"
         aria-describedby="image-hint readings">熱画像はCanvas対応ブラウザで表示できます。</canvas>
+      <canvas id="edges" width="160" height="120" hidden aria-hidden="true"></canvas>
+      <span id="pip-label" class="pip-label" hidden>熱画像</span>
+      </div>
+      </div>
       <figcaption id="image-hint">画像をタップすると、その位置の温度を表示します。</figcaption>
     </figure>
     <div class="scale" aria-hidden="true"><span id="scale-min">—</span><div id="gradient"></div><span id="scale-max">—</span></div>
@@ -82,6 +104,41 @@ input[type="checkbox"] { inline-size: 1.25rem; min-block-size: 1.25rem; margin: 
       </div>
       <p id="range-error" class="error" role="alert" hidden></p>
       <label for="smooth" class="checkbox"><input id="smooth" type="checkbox" checked>表示をなめらかにする</label>
+    </section>
+    <section class="controls" aria-labelledby="camera-heading">
+      <h2 id="camera-heading">iPhoneのカメラ</h2>
+      <p class="camera-note">背面カメラと熱画像を組み合わせます。カメラ映像は端末内で表示します。</p>
+      <button id="camera-toggle" type="button" aria-describedby="camera-status">背面カメラを使う</button>
+      <p id="camera-status" role="status">カメラは停止しています。</p>
+      <p id="camera-setup" class="notice" hidden>カメラにはHTTPS版が必要です。<a href="/setup">初回の証明書設定</a>を行ってください。</p>
+      <div id="camera-controls" hidden>
+        <label for="view-mode">合成方法<select id="view-mode">
+          <option value="pip">PiP（小窓）</option><option value="overlay">重ね合わせ</option><option value="edges">輪郭合成</option>
+        </select></label>
+        <p id="mode-hint" class="camera-note"></p>
+        <div id="pip-position-control">
+          <label for="pip-position">小窓の位置<select id="pip-position">
+            <option value="top-right">右上</option><option value="top-left">左上</option>
+            <option value="bottom-right">右下</option><option value="bottom-left">左下</option><option value="custom">手動調整</option>
+          </select></label>
+        </div>
+        <label for="opacity">熱画像の濃さ <output id="opacity-value">100%</output>
+          <input id="opacity" type="range" min="0" max="100" value="100" step="5"></label>
+        <label for="overlay-size">熱画像の大きさ <output id="overlay-size-value">40%</output>
+          <input id="overlay-size" type="range" min="15" max="100" value="40" step="1"></label>
+        <div class="control-grid">
+          <label for="overlay-x">左右の位置<input id="overlay-x" type="range" min="0" max="100" value="100" step="1"></label>
+          <label for="overlay-y">上下の位置<input id="overlay-y" type="range" min="0" max="100" value="0" step="1"></label>
+        </div>
+        <div id="edge-controls" class="control-grid" hidden>
+          <label for="edge-strength">輪郭の強さ <output id="edge-strength-value">70%</output>
+            <input id="edge-strength" type="range" min="0" max="100" value="70" step="5"></label>
+          <label for="edge-sensitivity">輪郭の感度 <output id="edge-sensitivity-value">65%</output>
+            <input id="edge-sensitivity" type="range" min="0" max="100" value="65" step="5"></label>
+        </div>
+        <button id="overlay-reset" type="button">この表示をリセット</button>
+        <p class="camera-note">表示設定はこの端末に保存します。重ね合わせ・輪郭合成は位置合わせが必要です。</p>
+      </div>
     </section>
     <footer>温度は元の32 × 24画素から読み取ります。補間は表示だけに適用します。</footer>
     <noscript><p class="error">表示にはJavaScriptを有効にしてください。</p></noscript>
@@ -122,6 +179,142 @@ input[type="checkbox"] { inline-size: 1.25rem; min-block-size: 1.25rem; margin: 
   <script>
 "use strict";
 
+// Geometry and ordinary Sobel image processing; no inference or dependencies.
+(() => {
+  const MODES = ["pip", "overlay", "edges"];
+  const clamp = (value, lower, upper) => Math.max(lower, Math.min(upper, value));
+  function defaults() {
+    return { version: 1, mode: "pip", strength: 70, sensitivity: 65, views: {
+      pip: { size: 40, x: 100, y: 0, opacity: 100 },
+      overlay: { size: 70, x: 50, y: 50, opacity: 55 },
+      edges: { size: 70, x: 50, y: 50, opacity: 100 }
+    } };
+  }
+  function restoreSettings(raw) {
+    const result = defaults();
+    let source;
+    try { source = JSON.parse(raw); } catch { return result; }
+    if (!source || source.version !== 1) return result;
+    if (MODES.includes(source.mode)) result.mode = source.mode;
+    for (const key of ["strength", "sensitivity"]) {
+      if (Number.isFinite(source[key])) result[key] = clamp(source[key], 0, 100);
+    }
+    for (const mode of MODES) for (const key of ["size", "x", "y", "opacity"]) {
+      const value = source.views?.[mode]?.[key];
+      if (Number.isFinite(value)) result.views[mode][key] = clamp(value, key === "size" ? 15 : 0, 100);
+    }
+    return result;
+  }
+  // Position is a fraction of available travel, so the whole 4:3 thermal
+  // window stays on screen even for portrait and widescreen camera streams.
+  function windowRect(width, height, size, x, y, margin = 0) {
+    const inset = Math.min(Math.max(0, margin), width / 4, height / 4);
+    const innerWidth = width - 2 * inset, innerHeight = height - 2 * inset;
+    const w = Math.min(innerWidth, innerHeight * 4 / 3) * clamp(size, 15, 100) / 100;
+    const h = w * 3 / 4;
+    return { left: inset + (innerWidth - w) * clamp(x, 0, 100) / 100,
+      top: inset + (innerHeight - h) * clamp(y, 0, 100) / 100, width: w, height: h };
+  }
+  function videoCrop(rect, stageWidth, stageHeight, videoWidth, videoHeight) {
+    return { x: rect.left / stageWidth * videoWidth, y: rect.top / stageHeight * videoHeight,
+      width: rect.width / stageWidth * videoWidth, height: rect.height / stageHeight * videoHeight };
+  }
+  function edgePixels(rgba, width, height, sensitivity, strength) {
+    const count = width * height, gray = new Float32Array(count), mask = new Uint8Array(count);
+    const output = new Uint8ClampedArray(count * 4);
+    if (strength <= 0) return output;
+    const threshold = 120 - clamp(sensitivity, 0, 100) * 1.1;
+    const opacity = clamp(strength, 0, 100) / 100;
+    for (let i = 0; i < count; i++) gray[i] = .299 * rgba[i * 4] + .587 * rgba[i * 4 + 1] + .114 * rgba[i * 4 + 2];
+    for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      const a = gray[i - width - 1], b = gray[i - width], c = gray[i - width + 1];
+      const d = gray[i - 1], f = gray[i + 1];
+      const g = gray[i + width - 1], h = gray[i + width], j = gray[i + width + 1];
+      const gx = -a + c - 2 * d + 2 * f - g + j;
+      const gy = -a - 2 * b - c + g + 2 * h + j;
+      const magnitude = Math.hypot(gx, gy) / 4;
+      mask[i] = Math.round(clamp((magnitude - threshold) / (255 - threshold), 0, 1) * 255);
+    }
+    // Add a dark one-pixel halo so white edges remain visible on hot colors.
+    for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x, offset = i * 4;
+      if (mask[i]) {
+        output[offset] = output[offset + 1] = output[offset + 2] = 255;
+        output[offset + 3] = mask[i] * opacity;
+      } else {
+        let nearby = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) nearby = Math.max(nearby, mask[i + dy * width + dx]);
+        output[offset + 3] = nearby * opacity * .7;
+      }
+    }
+    return output;
+  }
+  globalThis.ThermalFusion = Object.freeze({ defaults, restoreSettings, windowRect, videoCrop, edgePixels });
+})();
+</script>
+  <script>
+"use strict";
+
+// No frames leave the browser: this controller only attaches a local stream.
+(() => {
+  function create({ video, onState, onError }) {
+    let stream = null, generation = 0, state = "idle";
+    function update(next) { state = next; onState(next); }
+    function stop() {
+      generation++;
+      if (stream) {
+        for (const track of stream.getTracks()) {
+          track.onended = null;
+          track.stop();
+        }
+      }
+      stream = null;
+      video.pause(); video.srcObject = null;
+      update("idle");
+    }
+    async function start() {
+      stop();
+      if (!globalThis.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        onError("カメラには信頼済みのHTTPS接続が必要です。証明書設定後にHTTPS版を開いてください。");
+        return;
+      }
+      const attempt = generation;
+      update("pending");
+      try {
+        const acquired = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
+          facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 960 },
+          frameRate: { ideal: 30, max: 30 }
+        } });
+        if (attempt !== generation) { acquired.getTracks().forEach((track) => track.stop()); return; }
+        stream = acquired;
+        video.srcObject = acquired;
+        await video.play();
+        if (attempt !== generation) return;
+        for (const track of acquired.getVideoTracks()) track.onended = () => {
+          stop(); onError("カメラが停止しました。もう一度「背面カメラを使う」を押してください。");
+        };
+        update("active");
+      } catch (error) {
+        if (attempt !== generation) return;
+        stop();
+        const messages = {
+          NotAllowedError: "カメラを許可してください。拒否した場合はSafariのこのサイトのカメラ設定を確認してください。",
+          NotFoundError: "使用できるカメラが見つかりません。",
+          NotReadableError: "カメラを開始できません。ほかのカメラアプリを閉じて試してください。",
+          OverconstrainedError: "このカメラでは指定した映像を取得できません。"
+        };
+        onError(messages[error.name] || `カメラを開始できません：${error.message}`);
+      }
+    }
+    return { start, stop, get state() { return state; } };
+  }
+  globalThis.ThermalCamera = Object.freeze({ create });
+})();
+</script>
+  <script>
+"use strict";
+
 (() => {
   const { WIDTH, HEIGHT, PIXELS, decodeFrame, statistics, pixelAt } = ThermalFrame;
   const byId = (id) => document.getElementById(id);
@@ -142,6 +335,134 @@ input[type="checkbox"] { inline-size: 1.25rem; min-block-size: 1.25rem; margin: 
   let lastSequence = null, lastFrameAt = 0, lastActivityAt = 0, sensor = "waiting", stale = true;
   let fpsStart = 0, fpsFrames = 0, manualRange = [20, 45];
 
+  const stage = byId("viewer-stage"), cameraVideo = byId("camera-video");
+  const thermalWindow = byId("thermal-window"), edgeCanvas = byId("edges");
+  const edgeContext = edgeCanvas.getContext("2d"), edgeImage = edgeContext.createImageData(160, 120);
+  const samplingCanvas = document.createElement("canvas");
+  samplingCanvas.width = 160; samplingCanvas.height = 120;
+  const samplingContext = samplingCanvas.getContext("2d", { willReadFrequently: true });
+  const cameraButton = byId("camera-toggle"), cameraStatus = byId("camera-status");
+  const STORAGE_KEY = "thermalcam.display.v1";
+  let displaySettings;
+  try { displaySettings = ThermalFusion.restoreSettings(localStorage.getItem(STORAGE_KEY)); }
+  catch { displaySettings = ThermalFusion.defaults(); }
+  let geometry = null, edgeAnimation = null, lastEdgeAt = -Infinity, geometryKey = "";
+  const corners = { "top-right": [100, 0], "top-left": [0, 0], "bottom-right": [100, 100], "bottom-left": [0, 100] };
+  function saveDisplaySettings() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(displaySettings)); } catch { /* Private browsing/storage limits must not stop the viewer. */ }
+  }
+  function syncDisplayControls() {
+    const mode = displaySettings.mode, view = displaySettings.views[mode];
+    byId("view-mode").value = mode;
+    byId("opacity").value = String(view.opacity); byId("overlay-size").value = String(view.size);
+    byId("overlay-x").value = String(view.x); byId("overlay-y").value = String(view.y);
+    byId("edge-strength").value = String(displaySettings.strength);
+    byId("edge-sensitivity").value = String(displaySettings.sensitivity);
+    byId("pip-position").value = Object.entries(corners).find(([, [x, y]]) => x === view.x && y === view.y)?.[0] || "custom";
+    byId("pip-position-control").hidden = mode !== "pip";
+    byId("edge-controls").hidden = mode !== "edges";
+    byId("mode-hint").textContent = {
+      pip: "小窓は独立した熱画像です。カメラの同じ位置を示すものではありません。",
+      overlay: "カメラと熱画像の位置を手動で合わせます。",
+      edges: "カメラの輪郭を熱画像に足します。位置を合わせて使ってください。"
+    }[mode];
+  }
+  function stopEdges() {
+    if (edgeAnimation !== null) cancelAnimationFrame(edgeAnimation);
+    edgeAnimation = null;
+    edgeCanvas.hidden = true;
+    edgeContext.clearRect(0, 0, 160, 120);
+    lastEdgeAt = -Infinity;
+  }
+  function canDrawEdges() {
+    return camera.state === "active" && displaySettings.mode === "edges" && !stale && !document.hidden && displaySettings.strength > 0;
+  }
+  function edgeTick(now) {
+    edgeAnimation = null;
+    if (!canDrawEdges()) { stopEdges(); return; }
+    // Only sample a small image at up to 8 Hz; camera playback remains native.
+    if (now - lastEdgeAt >= 125 && geometry && cameraVideo.readyState >= 2) {
+      try {
+        const crop = ThermalFusion.videoCrop(geometry.rect, geometry.width, geometry.height, cameraVideo.videoWidth, cameraVideo.videoHeight);
+        samplingContext.drawImage(cameraVideo, crop.x, crop.y, crop.width, crop.height, 0, 0, 160, 120);
+        const rgba = samplingContext.getImageData(0, 0, 160, 120).data;
+        edgeImage.data.set(ThermalFusion.edgePixels(rgba, 160, 120, displaySettings.sensitivity, displaySettings.strength));
+        edgeContext.putImageData(edgeImage, 0, 0);
+        edgeCanvas.hidden = false;
+        lastEdgeAt = now;
+      } catch {
+        displaySettings.mode = "overlay"; syncDisplayControls(); updateOverlay();
+        cameraStatus.textContent = "輪郭を生成できないため、重ね合わせ表示に切り替えました。";
+        return;
+      }
+    }
+    edgeAnimation = requestAnimationFrame(edgeTick);
+  }
+  function updateEdges() {
+    if (!canDrawEdges()) stopEdges();
+    else if (edgeAnimation === null) edgeAnimation = requestAnimationFrame(edgeTick);
+  }
+  function updateOverlay() {
+    const active = camera.state === "active", mode = displaySettings.mode, view = displaySettings.views[mode];
+    const aspect = active && cameraVideo.videoWidth && cameraVideo.videoHeight ? `${cameraVideo.videoWidth} / ${cameraVideo.videoHeight}` : "4 / 3";
+    if (stage.style.aspectRatio !== aspect) stage.style.aspectRatio = aspect;
+    const bounds = stage.getBoundingClientRect();
+    const rect = active ? ThermalFusion.windowRect(bounds.width, bounds.height, view.size, view.x, view.y, mode === "pip" ? 8 : 0) :
+      { left: 0, top: 0, width: bounds.width, height: bounds.height };
+    geometry = { rect, width: bounds.width, height: bounds.height };
+    const key = [active, mode, bounds.width, bounds.height, view.size, view.x, view.y, displaySettings.strength, displaySettings.sensitivity].join(":");
+    if (geometryKey !== key) { stopEdges(); geometryKey = key; }
+    thermalWindow.dataset.mode = active ? mode : "thermal";
+    thermalWindow.style.left = `${rect.left}px`; thermalWindow.style.top = `${rect.top}px`;
+    thermalWindow.style.width = `${rect.width}px`; thermalWindow.style.height = `${rect.height}px`;
+    thermalWindow.style.setProperty("--thermal-opacity", active ? view.opacity / 100 : 1);
+    byId("pip-label").hidden = !active || mode !== "pip";
+    byId("opacity-value").value = `${view.opacity}%`; byId("overlay-size-value").value = `${view.size}%`;
+    byId("edge-strength-value").value = `${displaySettings.strength}%`; byId("edge-sensitivity-value").value = `${displaySettings.sensitivity}%`;
+    byId("image-hint").textContent = active && mode === "pip" ? "小窓の熱画像をタップすると、その位置の温度を表示します。" : "熱画像をタップすると、その位置の温度を表示します。";
+    updateEdges();
+  }
+  const camera = ThermalCamera.create({ video: cameraVideo,
+    onState(state) {
+      cameraVideo.hidden = state !== "active";
+      byId("camera-controls").hidden = state !== "active";
+      cameraButton.textContent = state === "active" ? "カメラを止める" : state === "pending" ? "カメラの開始をキャンセル" : "背面カメラを使う";
+      cameraStatus.textContent = state === "active" ? "カメラを表示しています。" : state === "pending" ? "カメラの許可を待っています…" : "カメラは停止しています。";
+      updateOverlay();
+    },
+    onError(message) { cameraStatus.textContent = message; }
+  });
+  syncDisplayControls();
+  updateOverlay();
+  byId("camera-setup").hidden = globalThis.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia);
+  cameraButton.addEventListener("click", () => { if (camera.state === "idle") camera.start(); else camera.stop(); });
+  byId("view-mode").addEventListener("change", () => {
+    displaySettings.mode = byId("view-mode").value;
+    syncDisplayControls(); updateOverlay(); saveDisplaySettings();
+  });
+  for (const [id, key] of [["opacity", "opacity"], ["overlay-size", "size"], ["overlay-x", "x"], ["overlay-y", "y"]]) byId(id).addEventListener("input", () => {
+    displaySettings.views[displaySettings.mode][key] = byId(id).valueAsNumber;
+    syncDisplayControls(); updateOverlay(); saveDisplaySettings();
+  });
+  for (const [id, key] of [["edge-strength", "strength"], ["edge-sensitivity", "sensitivity"]]) byId(id).addEventListener("input", () => {
+    displaySettings[key] = byId(id).valueAsNumber;
+    updateOverlay(); saveDisplaySettings();
+  });
+  byId("pip-position").addEventListener("change", () => {
+    const position = corners[byId("pip-position").value];
+    if (!position) return;
+    [displaySettings.views.pip.x, displaySettings.views.pip.y] = position;
+    syncDisplayControls(); updateOverlay(); saveDisplaySettings();
+  });
+  byId("overlay-reset").addEventListener("click", () => {
+    displaySettings.views[displaySettings.mode] = ThermalFusion.defaults().views[displaySettings.mode];
+    if (displaySettings.mode === "edges") { displaySettings.strength = 70; displaySettings.sensitivity = 65; }
+    syncDisplayControls(); updateOverlay(); saveDisplaySettings();
+  });
+  cameraVideo.addEventListener("resize", updateOverlay);
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(updateOverlay).observe(stage);
+  else window.addEventListener("resize", updateOverlay);
+
   function setStatus(message, state) {
     if (status.textContent !== message) status.textContent = message;
     status.dataset.state = state;
@@ -149,6 +470,7 @@ input[type="checkbox"] { inline-size: 1.25rem; min-block-size: 1.25rem; margin: 
   function invalidate(message) {
     stale = true;
     canvas.dataset.stale = "true";
+    updateEdges();
     for (const id of ["minimum", "maximum", "center"]) byId(id).textContent = "—";
     byId("picked").textContent = "選択点：—";
     byId("ambient").textContent = "Ta：—";
@@ -157,6 +479,7 @@ input[type="checkbox"] { inline-size: 1.25rem; min-block-size: 1.25rem; margin: 
   }
   function draw() {
     if (!frame) return;
+    updateEdges();
     const stats = statistics(frame.pixels);
     let min, max;
     if (range.value === "fixed") [min, max] = manualRange;
@@ -284,9 +607,9 @@ input[type="checkbox"] { inline-size: 1.25rem; min-block-size: 1.25rem; margin: 
   }
   byId("reconnect").addEventListener("click", connect);
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) disconnect(); else connect();
+    if (document.hidden) { disconnect(); camera.stop(); } else connect();
   });
-  window.addEventListener("pagehide", disconnect);
+  window.addEventListener("pagehide", () => { disconnect(); camera.stop(); });
   window.addEventListener("pageshow", () => { if (!socket && !document.hidden) connect(); });
   setInterval(() => {
     if (document.hidden || !socket || socket.readyState !== WebSocket.OPEN) return;

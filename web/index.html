@@ -18,9 +18,16 @@
     <p id="status" role="status">接続しています…</p>
     <p id="demo" class="notice" hidden>デモ表示です。温度は実測値ではありません。</p>
     <figure>
+      <div id="viewer-stage" class="viewer-stage">
+      <video id="camera-video" autoplay muted playsinline hidden aria-hidden="true"></video>
+      <div id="thermal-window" class="thermal-window" data-mode="thermal">
       <canvas id="image" width="640" height="480" tabindex="0" role="img"
         aria-label="熱画像。タップまたは矢印キーで測定点を選択"
         aria-describedby="image-hint readings">熱画像はCanvas対応ブラウザで表示できます。</canvas>
+      <canvas id="edges" width="160" height="120" hidden aria-hidden="true"></canvas>
+      <span id="pip-label" class="pip-label" hidden>熱画像</span>
+      </div>
+      </div>
       <figcaption id="image-hint">画像をタップすると、その位置の温度を表示します。</figcaption>
     </figure>
     <div class="scale" aria-hidden="true"><span id="scale-min">—</span><div id="gradient"></div><span id="scale-max">—</span></div>
@@ -43,10 +50,47 @@
       <p id="range-error" class="error" role="alert" hidden></p>
       <label for="smooth" class="checkbox"><input id="smooth" type="checkbox" checked>表示をなめらかにする</label>
     </section>
+    <section class="controls" aria-labelledby="camera-heading">
+      <h2 id="camera-heading">iPhoneのカメラ</h2>
+      <p class="camera-note">背面カメラと熱画像を組み合わせます。カメラ映像は端末内で表示します。</p>
+      <button id="camera-toggle" type="button" aria-describedby="camera-status">背面カメラを使う</button>
+      <p id="camera-status" role="status">カメラは停止しています。</p>
+      <p id="camera-setup" class="notice" hidden>カメラにはHTTPS版が必要です。<a href="/setup">初回の証明書設定</a>を行ってください。</p>
+      <div id="camera-controls" hidden>
+        <label for="view-mode">合成方法<select id="view-mode">
+          <option value="pip">PiP（小窓）</option><option value="overlay">重ね合わせ</option><option value="edges">輪郭合成</option>
+        </select></label>
+        <p id="mode-hint" class="camera-note"></p>
+        <div id="pip-position-control">
+          <label for="pip-position">小窓の位置<select id="pip-position">
+            <option value="top-right">右上</option><option value="top-left">左上</option>
+            <option value="bottom-right">右下</option><option value="bottom-left">左下</option><option value="custom">手動調整</option>
+          </select></label>
+        </div>
+        <label for="opacity">熱画像の濃さ <output id="opacity-value">100%</output>
+          <input id="opacity" type="range" min="0" max="100" value="100" step="5"></label>
+        <label for="overlay-size">熱画像の大きさ <output id="overlay-size-value">40%</output>
+          <input id="overlay-size" type="range" min="15" max="100" value="40" step="1"></label>
+        <div class="control-grid">
+          <label for="overlay-x">左右の位置<input id="overlay-x" type="range" min="0" max="100" value="100" step="1"></label>
+          <label for="overlay-y">上下の位置<input id="overlay-y" type="range" min="0" max="100" value="0" step="1"></label>
+        </div>
+        <div id="edge-controls" class="control-grid" hidden>
+          <label for="edge-strength">輪郭の強さ <output id="edge-strength-value">70%</output>
+            <input id="edge-strength" type="range" min="0" max="100" value="70" step="5"></label>
+          <label for="edge-sensitivity">輪郭の感度 <output id="edge-sensitivity-value">65%</output>
+            <input id="edge-sensitivity" type="range" min="0" max="100" value="65" step="5"></label>
+        </div>
+        <button id="overlay-reset" type="button">この表示をリセット</button>
+        <p class="camera-note">表示設定はこの端末に保存します。重ね合わせ・輪郭合成は位置合わせが必要です。</p>
+      </div>
+    </section>
     <footer>温度は元の32 × 24画素から読み取ります。補間は表示だけに適用します。</footer>
     <noscript><p class="error">表示にはJavaScriptを有効にしてください。</p></noscript>
   </main>
   <script src="/frame.js"></script>
+  <script src="/fusion.js"></script>
+  <script src="/camera.js"></script>
   <script src="/viewer.js"></script>
 </body>
 </html>

@@ -13,8 +13,15 @@ button { cursor: pointer; }
 #status[data-state="live"] { color: #9cddb7; }
 #status[data-state="error"], .error { color: #ffbdab; }
 figure { margin: 1rem 0 .5rem; }
-canvas { display: block; inline-size: 100%; block-size: auto; aspect-ratio: 4 / 3; background: #07090d; border-radius: .75rem; touch-action: pan-y; }
-canvas[data-stale="true"] { opacity: .45; }
+.viewer-stage { position: relative; aspect-ratio: 4 / 3; overflow: hidden; border-radius: .75rem; background: #07090d; }
+#camera-video { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; object-fit: contain; pointer-events: none; }
+.thermal-window { position: absolute; left: 0; top: 0; inline-size: 100%; block-size: 100%; overflow: hidden; border-radius: .35rem; }
+.thermal-window[data-mode="pip"] { outline: 2px solid #fac578; }
+#image, #edges { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; display: block; border-radius: inherit; }
+#image { opacity: var(--thermal-opacity, 1); touch-action: pan-y; }
+#image[data-stale="true"] { opacity: calc(var(--thermal-opacity, 1) * .45); }
+#edges { pointer-events: none; background: transparent; }
+.pip-label { position: absolute; top: .25rem; left: .25rem; padding: .1rem .3rem; font-size: .65rem; color: #fff; background: #10131acc; border-radius: .2rem; pointer-events: none; }
 figcaption, footer { color: #b8c0cc; font-size: .75rem; line-height: 1.6; }
 figcaption { margin-block-start: .5rem; }
 .scale { display: flex; align-items: center; gap: .75rem; color: #b8c0cc; font-size: .75rem; }
@@ -33,3 +40,11 @@ input[type="checkbox"] { inline-size: 1.25rem; min-block-size: 1.25rem; margin: 
 .notice { color: #fac578; }
 [hidden] { display: none !important; }
 @media (max-width: 340px) { .control-grid { grid-template-columns: 1fr; } }
+
+.camera-note, #camera-status { font-size: .875rem; color: #b8c0cc; line-height: 1.6; }
+a { color: #fac578; }
+input[type="range"] { display: block; inline-size: 100%; min-block-size: 44px; margin-block: .4rem 1rem; padding: 0; accent-color: #fac578; }
+output { font-variant-numeric: tabular-nums; }
+
+#pip-position-control { margin-block-end: 1rem; }
+#edge-controls { margin-block-start: 1rem; }

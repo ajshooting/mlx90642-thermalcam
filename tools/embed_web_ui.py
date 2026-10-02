@@ -8,7 +8,7 @@ TARGET = ROOT / "firmware/wifi_camera/web_ui.h"
 
 def build_html():
     html = (ROOT / "web/index.html").read_text(encoding="utf-8")
-    for name, tag in (("style.css", "style"), ("frame.js", "script"), ("viewer.js", "script")):
+    for name, tag in (("style.css", "style"), ("frame.js", "script"), ("fusion.js", "script"), ("camera.js", "script"), ("viewer.js", "script")):
         source = (ROOT / "web" / name).read_text(encoding="utf-8")
         marker = f'<link rel="stylesheet" href="/{name}">' if tag == "style" else f'<script src="/{name}"></script>'
         assert html.count(marker) == 1, f"Missing or duplicate asset: {name}"

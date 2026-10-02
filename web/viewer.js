@@ -20,6 +20,134 @@
   let lastSequence = null, lastFrameAt = 0, lastActivityAt = 0, sensor = "waiting", stale = true;
   let fpsStart = 0, fpsFrames = 0, manualRange = [20, 45];
 
+  const stage = byId("viewer-stage"), cameraVideo = byId("camera-video");
+  const thermalWindow = byId("thermal-window"), edgeCanvas = byId("edges");
+  const edgeContext = edgeCanvas.getContext("2d"), edgeImage = edgeContext.createImageData(160, 120);
+  const samplingCanvas = document.createElement("canvas");
+  samplingCanvas.width = 160; samplingCanvas.height = 120;
+  const samplingContext = samplingCanvas.getContext("2d", { willReadFrequently: true });
+  const cameraButton = byId("camera-toggle"), cameraStatus = byId("camera-status");
+  const STORAGE_KEY = "thermalcam.display.v1";
+  let displaySettings;
+  try { displaySettings = ThermalFusion.restoreSettings(localStorage.getItem(STORAGE_KEY)); }
+  catch { displaySettings = ThermalFusion.defaults(); }
+  let geometry = null, edgeAnimation = null, lastEdgeAt = -Infinity, geometryKey = "";
+  const corners = { "top-right": [100, 0], "top-left": [0, 0], "bottom-right": [100, 100], "bottom-left": [0, 100] };
+  function saveDisplaySettings() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(displaySettings)); } catch { /* Private browsing/storage limits must not stop the viewer. */ }
+  }
+  function syncDisplayControls() {
+    const mode = displaySettings.mode, view = displaySettings.views[mode];
+    byId("view-mode").value = mode;
+    byId("opacity").value = String(view.opacity); byId("overlay-size").value = String(view.size);
+    byId("overlay-x").value = String(view.x); byId("overlay-y").value = String(view.y);
+    byId("edge-strength").value = String(displaySettings.strength);
+    byId("edge-sensitivity").value = String(displaySettings.sensitivity);
+    byId("pip-position").value = Object.entries(corners).find(([, [x, y]]) => x === view.x && y === view.y)?.[0] || "custom";
+    byId("pip-position-control").hidden = mode !== "pip";
+    byId("edge-controls").hidden = mode !== "edges";
+    byId("mode-hint").textContent = {
+      pip: "小窓は独立した熱画像です。カメラの同じ位置を示すものではありません。",
+      overlay: "カメラと熱画像の位置を手動で合わせます。",
+      edges: "カメラの輪郭を熱画像に足します。位置を合わせて使ってください。"
+    }[mode];
+  }
+  function stopEdges() {
+    if (edgeAnimation !== null) cancelAnimationFrame(edgeAnimation);
+    edgeAnimation = null;
+    edgeCanvas.hidden = true;
+    edgeContext.clearRect(0, 0, 160, 120);
+    lastEdgeAt = -Infinity;
+  }
+  function canDrawEdges() {
+    return camera.state === "active" && displaySettings.mode === "edges" && !stale && !document.hidden && displaySettings.strength > 0;
+  }
+  function edgeTick(now) {
+    edgeAnimation = null;
+    if (!canDrawEdges()) { stopEdges(); return; }
+    // Only sample a small image at up to 8 Hz; camera playback remains native.
+    if (now - lastEdgeAt >= 125 && geometry && cameraVideo.readyState >= 2) {
+      try {
+        const crop = ThermalFusion.videoCrop(geometry.rect, geometry.width, geometry.height, cameraVideo.videoWidth, cameraVideo.videoHeight);
+        samplingContext.drawImage(cameraVideo, crop.x, crop.y, crop.width, crop.height, 0, 0, 160, 120);
+        const rgba = samplingContext.getImageData(0, 0, 160, 120).data;
+        edgeImage.data.set(ThermalFusion.edgePixels(rgba, 160, 120, displaySettings.sensitivity, displaySettings.strength));
+        edgeContext.putImageData(edgeImage, 0, 0);
+        edgeCanvas.hidden = false;
+        lastEdgeAt = now;
+      } catch {
+        displaySettings.mode = "overlay"; syncDisplayControls(); updateOverlay();
+        cameraStatus.textContent = "輪郭を生成できないため、重ね合わせ表示に切り替えました。";
+        return;
+      }
+    }
+    edgeAnimation = requestAnimationFrame(edgeTick);
+  }
+  function updateEdges() {
+    if (!canDrawEdges()) stopEdges();
+    else if (edgeAnimation === null) edgeAnimation = requestAnimationFrame(edgeTick);
+  }
+  function updateOverlay() {
+    const active = camera.state === "active", mode = displaySettings.mode, view = displaySettings.views[mode];
+    const aspect = active && cameraVideo.videoWidth && cameraVideo.videoHeight ? `${cameraVideo.videoWidth} / ${cameraVideo.videoHeight}` : "4 / 3";
+    if (stage.style.aspectRatio !== aspect) stage.style.aspectRatio = aspect;
+    const bounds = stage.getBoundingClientRect();
+    const rect = active ? ThermalFusion.windowRect(bounds.width, bounds.height, view.size, view.x, view.y, mode === "pip" ? 8 : 0) :
+      { left: 0, top: 0, width: bounds.width, height: bounds.height };
+    geometry = { rect, width: bounds.width, height: bounds.height };
+    const key = [active, mode, bounds.width, bounds.height, view.size, view.x, view.y, displaySettings.strength, displaySettings.sensitivity].join(":");
+    if (geometryKey !== key) { stopEdges(); geometryKey = key; }
+    thermalWindow.dataset.mode = active ? mode : "thermal";
+    thermalWindow.style.left = `${rect.left}px`; thermalWindow.style.top = `${rect.top}px`;
+    thermalWindow.style.width = `${rect.width}px`; thermalWindow.style.height = `${rect.height}px`;
+    thermalWindow.style.setProperty("--thermal-opacity", active ? view.opacity / 100 : 1);
+    byId("pip-label").hidden = !active || mode !== "pip";
+    byId("opacity-value").value = `${view.opacity}%`; byId("overlay-size-value").value = `${view.size}%`;
+    byId("edge-strength-value").value = `${displaySettings.strength}%`; byId("edge-sensitivity-value").value = `${displaySettings.sensitivity}%`;
+    byId("image-hint").textContent = active && mode === "pip" ? "小窓の熱画像をタップすると、その位置の温度を表示します。" : "熱画像をタップすると、その位置の温度を表示します。";
+    updateEdges();
+  }
+  const camera = ThermalCamera.create({ video: cameraVideo,
+    onState(state) {
+      cameraVideo.hidden = state !== "active";
+      byId("camera-controls").hidden = state !== "active";
+      cameraButton.textContent = state === "active" ? "カメラを止める" : state === "pending" ? "カメラの開始をキャンセル" : "背面カメラを使う";
+      cameraStatus.textContent = state === "active" ? "カメラを表示しています。" : state === "pending" ? "カメラの許可を待っています…" : "カメラは停止しています。";
+      updateOverlay();
+    },
+    onError(message) { cameraStatus.textContent = message; }
+  });
+  syncDisplayControls();
+  updateOverlay();
+  byId("camera-setup").hidden = globalThis.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia);
+  cameraButton.addEventListener("click", () => { if (camera.state === "idle") camera.start(); else camera.stop(); });
+  byId("view-mode").addEventListener("change", () => {
+    displaySettings.mode = byId("view-mode").value;
+    syncDisplayControls(); updateOverlay(); saveDisplaySettings();
+  });
+  for (const [id, key] of [["opacity", "opacity"], ["overlay-size", "size"], ["overlay-x", "x"], ["overlay-y", "y"]]) byId(id).addEventListener("input", () => {
+    displaySettings.views[displaySettings.mode][key] = byId(id).valueAsNumber;
+    syncDisplayControls(); updateOverlay(); saveDisplaySettings();
+  });
+  for (const [id, key] of [["edge-strength", "strength"], ["edge-sensitivity", "sensitivity"]]) byId(id).addEventListener("input", () => {
+    displaySettings[key] = byId(id).valueAsNumber;
+    updateOverlay(); saveDisplaySettings();
+  });
+  byId("pip-position").addEventListener("change", () => {
+    const position = corners[byId("pip-position").value];
+    if (!position) return;
+    [displaySettings.views.pip.x, displaySettings.views.pip.y] = position;
+    syncDisplayControls(); updateOverlay(); saveDisplaySettings();
+  });
+  byId("overlay-reset").addEventListener("click", () => {
+    displaySettings.views[displaySettings.mode] = ThermalFusion.defaults().views[displaySettings.mode];
+    if (displaySettings.mode === "edges") { displaySettings.strength = 70; displaySettings.sensitivity = 65; }
+    syncDisplayControls(); updateOverlay(); saveDisplaySettings();
+  });
+  cameraVideo.addEventListener("resize", updateOverlay);
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(updateOverlay).observe(stage);
+  else window.addEventListener("resize", updateOverlay);
+
   function setStatus(message, state) {
     if (status.textContent !== message) status.textContent = message;
     status.dataset.state = state;
@@ -27,6 +155,7 @@
   function invalidate(message) {
     stale = true;
     canvas.dataset.stale = "true";
+    updateEdges();
     for (const id of ["minimum", "maximum", "center"]) byId(id).textContent = "—";
     byId("picked").textContent = "選択点：—";
     byId("ambient").textContent = "Ta：—";
@@ -35,6 +164,7 @@
   }
   function draw() {
     if (!frame) return;
+    updateEdges();
     const stats = statistics(frame.pixels);
     let min, max;
     if (range.value === "fixed") [min, max] = manualRange;
@@ -162,9 +292,9 @@
   }
   byId("reconnect").addEventListener("click", connect);
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) disconnect(); else connect();
+    if (document.hidden) { disconnect(); camera.stop(); } else connect();
   });
-  window.addEventListener("pagehide", disconnect);
+  window.addEventListener("pagehide", () => { disconnect(); camera.stop(); });
   window.addEventListener("pageshow", () => { if (!socket && !document.hidden) connect(); });
   setInterval(() => {
     if (document.hidden || !socket || socket.readyState !== WebSocket.OPEN) return;

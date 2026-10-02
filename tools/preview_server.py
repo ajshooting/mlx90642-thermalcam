@@ -41,7 +41,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
-        if path.startswith("/__test/"):
+        if path == "/__test/camera":
+            # Browser integration fixture; never included in the Arduino UI.
+            html = (WEB / "index.html").read_text(encoding="utf-8")
+            fixture = (WEB.parent / "tests/mock_camera.js").read_text(encoding="utf-8")
+            html = html.replace('<script src="/camera.js"></script>', '<script>' + fixture + '</script><script src="/camera.js"></script>')
+            html = html.replace('カメラ映像は端末内で表示します。', 'このページのカメラも模擬映像です。実際のカメラは使いません。')
+            self.respond(html.encode(), "text/html; charset=utf-8")
+        elif path.startswith("/__test/"):
             scenario = path.rsplit("/", 1)[1]
             if scenario not in SCENARIOS:
                 self.send_error(404)
@@ -50,7 +57,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(scenario.encode(), "text/plain")
         elif path == "/ws" and self.headers.get("Upgrade", "").lower() == "websocket":
             self.stream()
-        elif path in {"/", "/style.css", "/frame.js", "/viewer.js"}:
+        elif path in {"/", "/style.css", "/frame.js", "/fusion.js", "/camera.js", "/viewer.js"}:
             filename = "index.html" if path == "/" else path[1:]
             content_type = {"html": "text/html; charset=utf-8", "css": "text/css", "js": "text/javascript"}[filename.rsplit(".", 1)[1]]
             self.respond((WEB / filename).read_bytes(), content_type)
