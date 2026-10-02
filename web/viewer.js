@@ -8,7 +8,7 @@
   rawCanvas.width = WIDTH; rawCanvas.height = HEIGHT;
   const rawContext = rawCanvas.getContext("2d"), image = rawContext.createImageData(WIDTH, HEIGHT);
   const status = byId("status"), range = byId("range"), palette = byId("palette");
-  const lower = byId("lower"), upper = byId("upper"), smooth = byId("smooth");
+  const lower = byId("lower"), upper = byId("upper"), smooth = byId("smooth"), mirrorX = byId("mirror-x");
   const temperature = (value) => `${value.toFixed(1)} °C`;
   const stops = [[11, 10, 48], [114, 32, 112], [204, 59, 66], [244, 155, 57], [255, 244, 191]];
   const colors = Array.from({ length: 256 }, (_, i) => {
@@ -39,6 +39,7 @@
   function syncDisplayControls() {
     const mode = displaySettings.mode, view = displaySettings.views[mode];
     byId("view-mode").value = mode;
+    mirrorX.checked = displaySettings.mirrorX;
     byId("opacity").value = String(view.opacity); byId("overlay-size").value = String(view.size);
     byId("overlay-x").value = String(view.x); byId("overlay-y").value = String(view.y);
     byId("edge-strength").value = String(displaySettings.strength);
@@ -180,6 +181,9 @@
     rawContext.putImageData(image, 0, 0);
     context.imageSmoothingEnabled = smooth.checked;
     context.imageSmoothingQuality = "high";
+    // Reflect only the thermal image and its marker; camera/edges stay in camera coordinates.
+    context.save();
+    if (displaySettings.mirrorX) { context.translate(canvas.width, 0); context.scale(-1, 1); }
     context.drawImage(rawCanvas, 0, 0, canvas.width, canvas.height);
     const x = (picked % WIDTH + .5) / WIDTH * canvas.width;
     const y = (Math.floor(picked / WIDTH) + .5) / HEIGHT * canvas.height;
@@ -187,6 +191,7 @@
     context.moveTo(x, y - 9); context.lineTo(x, y + 9);
     context.strokeStyle = "#10131a"; context.lineWidth = 4; context.stroke();
     context.strokeStyle = "#fff"; context.lineWidth = 2; context.stroke();
+    context.restore();
     byId("scale-min").textContent = temperature(min); byId("scale-max").textContent = temperature(max);
     if (!stale) {
       byId("minimum").textContent = temperature(stats.min);
@@ -209,6 +214,10 @@
   for (const control of [range, lower, upper]) control.addEventListener("change", validateRange);
   for (const control of [lower, upper]) control.addEventListener("input", validateRange);
   smooth.addEventListener("change", draw);
+  mirrorX.addEventListener("change", () => {
+    displaySettings.mirrorX = mirrorX.checked;
+    draw(); saveDisplaySettings();
+  });
   palette.addEventListener("change", () => {
     byId("gradient").style.background = palette.value === "gray" ? "linear-gradient(90deg, #000, #fff)" : "";
     draw();
@@ -216,14 +225,14 @@
   canvas.addEventListener("click", (event) => {
     if (stale) return;
     const rect = canvas.getBoundingClientRect();
-    picked = pixelAt(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height);
+    picked = pixelAt(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height, displaySettings.mirrorX);
     draw();
   });
   canvas.addEventListener("keydown", (event) => {
     if (stale || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
     const x = picked % WIDTH, y = Math.floor(picked / WIDTH);
-    const dx = (event.key === "ArrowRight") - (event.key === "ArrowLeft");
+    const dx = ((event.key === "ArrowRight") - (event.key === "ArrowLeft")) * (displaySettings.mirrorX ? -1 : 1);
     const dy = (event.key === "ArrowDown") - (event.key === "ArrowUp");
     picked = Math.max(0, Math.min(HEIGHT - 1, y + dy)) * WIDTH + Math.max(0, Math.min(WIDTH - 1, x + dx));
     draw();

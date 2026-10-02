@@ -67,3 +67,19 @@ test("saved view settings are bounded and malformed data cannot replace defaults
   const first = defaults(); first.views.pip.size = 99;
   assert.equal(defaults().views.pip.size, 40);
 });
+
+test("thermal mirroring survives reload and older settings keep their orientation", () => {
+  const saved = defaults();
+  assert.equal(saved.mirrorX, false);
+  saved.mirrorX = true; saved.mode = "edges"; saved.views.overlay.x = 25;
+  const restored = restoreSettings(JSON.stringify(saved));
+  assert.equal(restored.mirrorX, true);
+  assert.equal(restored.mode, "edges");
+  assert.equal(restored.views.overlay.x, 25);
+  for (const value of [false, "false", "true", 1, null]) {
+    saved.mirrorX = value;
+    assert.equal(restoreSettings(JSON.stringify(saved)).mirrorX, false);
+  }
+  delete saved.mirrorX;
+  assert.equal(restoreSettings(JSON.stringify(saved)).mirrorX, false);
+});

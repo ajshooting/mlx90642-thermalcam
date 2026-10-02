@@ -5,7 +5,7 @@
   const MODES = ["pip", "overlay", "edges"];
   const clamp = (value, lower, upper) => Math.max(lower, Math.min(upper, value));
   function defaults() {
-    return { version: 1, mode: "pip", strength: 70, sensitivity: 65, views: {
+    return { version: 1, mode: "pip", mirrorX: false, strength: 70, sensitivity: 65, views: {
       pip: { size: 40, x: 100, y: 0, opacity: 100 },
       overlay: { size: 70, x: 50, y: 50, opacity: 55 },
       edges: { size: 70, x: 50, y: 50, opacity: 100 }
@@ -17,6 +17,7 @@
     try { source = JSON.parse(raw); } catch { return result; }
     if (!source || source.version !== 1) return result;
     if (MODES.includes(source.mode)) result.mode = source.mode;
+    if (typeof source.mirrorX === "boolean") result.mirrorX = source.mirrorX;
     for (const key of ["strength", "sensitivity"]) {
       if (Number.isFinite(source[key])) result[key] = clamp(source[key], 0, 100);
     }

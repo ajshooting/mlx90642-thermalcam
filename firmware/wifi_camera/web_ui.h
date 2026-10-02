@@ -104,6 +104,7 @@ output { font-variant-numeric: tabular-nums; }
       </div>
       <p id="range-error" class="error" role="alert" hidden></p>
       <label for="smooth" class="checkbox"><input id="smooth" type="checkbox" checked>表示をなめらかにする</label>
+      <label for="mirror-x" class="checkbox"><input id="mirror-x" type="checkbox">熱画像を左右反転</label>
     </section>
     <section class="controls" aria-labelledby="camera-heading">
       <h2 id="camera-heading">iPhoneのカメラ</h2>
@@ -169,9 +170,10 @@ output { font-variant-numeric: tabular-nums; }
     return { min: pixels[minIndex], max: pixels[maxIndex], minIndex, maxIndex,
       center: pixels[Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2)] };
   }
-  function pixelAt(x, y, width, height) {
+  function pixelAt(x, y, width, height, mirrorX = false) {
+    const column = Math.min(WIDTH - 1, Math.max(0, Math.floor(x / width * WIDTH)));
     return Math.min(HEIGHT - 1, Math.max(0, Math.floor(y / height * HEIGHT))) * WIDTH +
-      Math.min(WIDTH - 1, Math.max(0, Math.floor(x / width * WIDTH)));
+      (mirrorX ? WIDTH - 1 - column : column);
   }
   globalThis.ThermalFrame = Object.freeze({ WIDTH, HEIGHT, PIXELS, decodeFrame, statistics, pixelAt });
 })();
@@ -184,7 +186,7 @@ output { font-variant-numeric: tabular-nums; }
   const MODES = ["pip", "overlay", "edges"];
   const clamp = (value, lower, upper) => Math.max(lower, Math.min(upper, value));
   function defaults() {
-    return { version: 1, mode: "pip", strength: 70, sensitivity: 65, views: {
+    return { version: 1, mode: "pip", mirrorX: false, strength: 70, sensitivity: 65, views: {
       pip: { size: 40, x: 100, y: 0, opacity: 100 },
       overlay: { size: 70, x: 50, y: 50, opacity: 55 },
       edges: { size: 70, x: 50, y: 50, opacity: 100 }
@@ -196,6 +198,7 @@ output { font-variant-numeric: tabular-nums; }
     try { source = JSON.parse(raw); } catch { return result; }
     if (!source || source.version !== 1) return result;
     if (MODES.includes(source.mode)) result.mode = source.mode;
+    if (typeof source.mirrorX === "boolean") result.mirrorX = source.mirrorX;
     for (const key of ["strength", "sensitivity"]) {
       if (Number.isFinite(source[key])) result[key] = clamp(source[key], 0, 100);
     }
@@ -323,7 +326,7 @@ output { font-variant-numeric: tabular-nums; }
   rawCanvas.width = WIDTH; rawCanvas.height = HEIGHT;
   const rawContext = rawCanvas.getContext("2d"), image = rawContext.createImageData(WIDTH, HEIGHT);
   const status = byId("status"), range = byId("range"), palette = byId("palette");
-  const lower = byId("lower"), upper = byId("upper"), smooth = byId("smooth");
+  const lower = byId("lower"), upper = byId("upper"), smooth = byId("smooth"), mirrorX = byId("mirror-x");
   const temperature = (value) => `${value.toFixed(1)} °C`;
   const stops = [[11, 10, 48], [114, 32, 112], [204, 59, 66], [244, 155, 57], [255, 244, 191]];
   const colors = Array.from({ length: 256 }, (_, i) => {
@@ -354,6 +357,7 @@ output { font-variant-numeric: tabular-nums; }
   function syncDisplayControls() {
     const mode = displaySettings.mode, view = displaySettings.views[mode];
     byId("view-mode").value = mode;
+    mirrorX.checked = displaySettings.mirrorX;
     byId("opacity").value = String(view.opacity); byId("overlay-size").value = String(view.size);
     byId("overlay-x").value = String(view.x); byId("overlay-y").value = String(view.y);
     byId("edge-strength").value = String(displaySettings.strength);
@@ -495,6 +499,9 @@ output { font-variant-numeric: tabular-nums; }
     rawContext.putImageData(image, 0, 0);
     context.imageSmoothingEnabled = smooth.checked;
     context.imageSmoothingQuality = "high";
+    // Reflect only the thermal image and its marker; camera/edges stay in camera coordinates.
+    context.save();
+    if (displaySettings.mirrorX) { context.translate(canvas.width, 0); context.scale(-1, 1); }
     context.drawImage(rawCanvas, 0, 0, canvas.width, canvas.height);
     const x = (picked % WIDTH + .5) / WIDTH * canvas.width;
     const y = (Math.floor(picked / WIDTH) + .5) / HEIGHT * canvas.height;
@@ -502,6 +509,7 @@ output { font-variant-numeric: tabular-nums; }
     context.moveTo(x, y - 9); context.lineTo(x, y + 9);
     context.strokeStyle = "#10131a"; context.lineWidth = 4; context.stroke();
     context.strokeStyle = "#fff"; context.lineWidth = 2; context.stroke();
+    context.restore();
     byId("scale-min").textContent = temperature(min); byId("scale-max").textContent = temperature(max);
     if (!stale) {
       byId("minimum").textContent = temperature(stats.min);
@@ -524,6 +532,10 @@ output { font-variant-numeric: tabular-nums; }
   for (const control of [range, lower, upper]) control.addEventListener("change", validateRange);
   for (const control of [lower, upper]) control.addEventListener("input", validateRange);
   smooth.addEventListener("change", draw);
+  mirrorX.addEventListener("change", () => {
+    displaySettings.mirrorX = mirrorX.checked;
+    draw(); saveDisplaySettings();
+  });
   palette.addEventListener("change", () => {
     byId("gradient").style.background = palette.value === "gray" ? "linear-gradient(90deg, #000, #fff)" : "";
     draw();
@@ -531,14 +543,14 @@ output { font-variant-numeric: tabular-nums; }
   canvas.addEventListener("click", (event) => {
     if (stale) return;
     const rect = canvas.getBoundingClientRect();
-    picked = pixelAt(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height);
+    picked = pixelAt(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height, displaySettings.mirrorX);
     draw();
   });
   canvas.addEventListener("keydown", (event) => {
     if (stale || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
     const x = picked % WIDTH, y = Math.floor(picked / WIDTH);
-    const dx = (event.key === "ArrowRight") - (event.key === "ArrowLeft");
+    const dx = ((event.key === "ArrowRight") - (event.key === "ArrowLeft")) * (displaySettings.mirrorX ? -1 : 1);
     const dy = (event.key === "ArrowDown") - (event.key === "ArrowUp");
     picked = Math.max(0, Math.min(HEIGHT - 1, y + dy)) * WIDTH + Math.max(0, Math.min(WIDTH - 1, x + dx));
     draw();

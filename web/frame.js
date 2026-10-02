@@ -23,9 +23,10 @@
     return { min: pixels[minIndex], max: pixels[maxIndex], minIndex, maxIndex,
       center: pixels[Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2)] };
   }
-  function pixelAt(x, y, width, height) {
+  function pixelAt(x, y, width, height, mirrorX = false) {
+    const column = Math.min(WIDTH - 1, Math.max(0, Math.floor(x / width * WIDTH)));
     return Math.min(HEIGHT - 1, Math.max(0, Math.floor(y / height * HEIGHT))) * WIDTH +
-      Math.min(WIDTH - 1, Math.max(0, Math.floor(x / width * WIDTH)));
+      (mirrorX ? WIDTH - 1 - column : column);
   }
   globalThis.ThermalFrame = Object.freeze({ WIDTH, HEIGHT, PIXELS, decodeFrame, statistics, pixelAt });
 })();

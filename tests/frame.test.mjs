@@ -57,3 +57,20 @@ test("phone and resized desktop coordinates select the same raw pixel", () => {
   assert.equal(pixelAt(-1, -1, 359.5, 269.6), 0);
   assert.equal(pixelAt(359.5, 269.6, 359.5, 269.6), 767);
 });
+
+test("mirrored taps select the measured pixel shown at that position", () => {
+  const frame = decodeFrame(buffer);
+  assert.equal(frame.pixels[pixelAt(639, 0, 640, 480, true)], -40);
+  assert.equal(frame.pixels[pixelAt(0, 479, 640, 480, true)], 260);
+  for (const [width, height] of [[640, 480], [359.5, 269.6]]) {
+    // Include exact pixel boundaries and points outside the image.
+    for (const x of [-1, 0, width / 4, width / 2, width]) {
+      for (const y of [-1, 0, height / 2, height]) {
+        const normal = pixelAt(x, y, width, height);
+        const mirrored = pixelAt(x, y, width, height, true);
+        assert.equal(Math.floor(mirrored / 32), Math.floor(normal / 32));
+        assert.equal(mirrored % 32, 31 - normal % 32);
+      }
+    }
+  }
+});
