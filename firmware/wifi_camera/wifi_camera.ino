@@ -2,6 +2,16 @@
 #include <Wire.h>
 #include <esp_http_server.h>
 
+#if __has_include("tls_credentials.h")
+#define THERMAL_HAS_TLS 1
+#include <esp_https_server.h>
+#include "tls_credentials.h"
+#else
+#define THERMAL_HAS_TLS 0
+#endif
+
+#include "setup_ui.h"
+
 #include "frame_protocol.h"
 #include "web_ui.h"
 
@@ -19,7 +29,9 @@ constexpr uint16_t CONFIG_ADDR = 0x11F4;
 constexpr uint16_t READY_MASK = 0x0100;
 constexpr uint16_t BUSY_MASK = 0x0001;
 constexpr uint32_t STALE_MS = 3000;
-constexpr size_t MAX_CLIENTS = 6;
+// TLS connections consume additional RAM. Keep the secure socket pool small.
+constexpr size_t MAX_CLIENTS = THERMAL_HAS_TLS ? 3 : 6;
+httpd_handle_t setupServer = nullptr;
 
 httpd_handle_t server = nullptr;
 portMUX_TYPE frameMux = portMUX_INITIALIZER_UNLOCKED;
@@ -119,6 +131,8 @@ esp_err_t handleIndex(httpd_req_t *request) {
   httpd_resp_set_type(request, "text/html; charset=utf-8");
   httpd_resp_set_hdr(request, "Cache-Control", "no-store");
   httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
+  httpd_resp_set_hdr(request, "Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+  httpd_resp_set_hdr(request, "Referrer-Policy", "no-referrer");
   return httpd_resp_send(request, WEB_UI, sizeof(WEB_UI) - 1);
 }
 
@@ -153,14 +167,71 @@ esp_err_t handleWebSocket(httpd_req_t *request) {
   return httpd_ws_recv_frame(request, &frame, sizeof(payload));
 }
 
-bool startServer() {
+esp_err_t handleSetup(httpd_req_t *request) {
+  httpd_resp_set_type(request, "text/html; charset=utf-8");
+  httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+  httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
+  if (httpd_resp_send_chunk(request, SETUP_UI, sizeof(SETUP_UI) - 1) != ESP_OK) return ESP_FAIL;
+#if THERMAL_HAS_TLS
+  if (httpd_resp_sendstr_chunk(request, "<p><a href='/thermalcam-ca.cer'>この基板の証明書をダウンロード</a></p><p>Macの生成コマンドが表示したSHA-256と照合してください。</p><code>") != ESP_OK ||
+      httpd_resp_sendstr_chunk(request, TLS_CA_FINGERPRINT) != ESP_OK ||
+      httpd_resp_sendstr_chunk(request, "</code><p><a href='https://192.168.4.1/'>設定後にHTTPS版を開く</a></p>") != ESP_OK) return ESP_FAIL;
+#else
+  if (httpd_resp_sendstr_chunk(request, "<p>この基板はHTTP版です。Macで証明書を生成し、スケッチを書き込み直してください。</p>") != ESP_OK) return ESP_FAIL;
+#endif
+  if (httpd_resp_sendstr_chunk(request, "</main></body></html>") != ESP_OK) return ESP_FAIL;
+  return httpd_resp_send_chunk(request, nullptr, 0);
+}
+
+#if THERMAL_HAS_TLS
+esp_err_t handleCertificate(httpd_req_t *request) {
+  httpd_resp_set_type(request, "application/x-x509-ca-cert");
+  httpd_resp_set_hdr(request, "Content-Disposition", "attachment; filename=thermalcam-ca.cer");
+  httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+  return httpd_resp_send(request, reinterpret_cast<const char *>(TLS_CA_DER), sizeof(TLS_CA_DER));
+}
+
+bool startSetupServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.stack_size = 8192;
+  config.max_open_sockets = 2;
+  config.max_uri_handlers = 3;
+  config.lru_purge_enable = true;
+  config.send_wait_timeout = 2;
+  config.recv_wait_timeout = 2;
+  if (httpd_start(&setupServer, &config) != ESP_OK) return false;
+  httpd_uri_t setup = {};
+  setup.uri = "/"; setup.method = HTTP_GET; setup.handler = handleSetup;
+  httpd_uri_t certificate = {};
+  certificate.uri = "/thermalcam-ca.cer"; certificate.method = HTTP_GET; certificate.handler = handleCertificate;
+  if (httpd_register_uri_handler(setupServer, &setup) != ESP_OK) return false;
+  setup.uri = "/setup";
+  return httpd_register_uri_handler(setupServer, &setup) == ESP_OK &&
+         httpd_register_uri_handler(setupServer, &certificate) == ESP_OK;
+}
+#endif
+
+bool startServer() {
+#if THERMAL_HAS_TLS
+  httpd_ssl_config_t secure = HTTPD_SSL_CONFIG_DEFAULT();
+  httpd_config_t &config = secure.httpd;
+  secure.servercert = reinterpret_cast<const uint8_t *>(TLS_SERVER_CERT);
+  secure.servercert_len = sizeof(TLS_SERVER_CERT);
+  secure.prvtkey_pem = reinterpret_cast<const uint8_t *>(TLS_SERVER_KEY);
+  secure.prvtkey_len = sizeof(TLS_SERVER_KEY);
+  secure.tls_handshake_timeout_ms = 8000;
+#else
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+#endif
+  config.stack_size = 10240;
   config.max_open_sockets = MAX_CLIENTS;
   config.lru_purge_enable = true;
   config.send_wait_timeout = 1;
   config.recv_wait_timeout = 1;
+#if THERMAL_HAS_TLS
+  if (httpd_ssl_start(&server, &secure) != ESP_OK) return false;
+#else
   if (httpd_start(&server, &config) != ESP_OK) return false;
+#endif
   httpd_uri_t index = {};
   index.uri = "/";
   index.method = HTTP_GET;
@@ -177,10 +248,22 @@ bool startServer() {
   if (httpd_register_uri_handler(server, &index) != ESP_OK ||
       httpd_register_uri_handler(server, &status) != ESP_OK ||
       httpd_register_uri_handler(server, &websocket) != ESP_OK) {
+    #if THERMAL_HAS_TLS
+    httpd_ssl_stop(server);
+    #else
     httpd_stop(server);
+    #endif
     server = nullptr;
     return false;
   }
+#if THERMAL_HAS_TLS
+  // Public CA certificate only. Never expose the CA or server private key.
+  if (!startSetupServer()) Serial.println("WARN,CERTIFICATE_SETUP_SERVER_FAILED");
+#else
+  httpd_uri_t setup = {};
+  setup.uri = "/setup"; setup.method = HTTP_GET; setup.handler = handleSetup;
+  if (httpd_register_uri_handler(server, &setup) != ESP_OK) return false;
+#endif
   return true;
 }
 
@@ -260,7 +343,11 @@ void setup() {
     Serial.println("ERROR,SERVER_START_FAILED");
     return;
   }
+#if THERMAL_HAS_TLS
+  Serial.printf("Wi-Fi: %s\nSetup: http://192.168.4.1/setup\nOpen https://192.168.4.1/\n", AP_SSID);
+#else
   Serial.printf("Wi-Fi: %s\nOpen http://192.168.4.1\n", AP_SSID);
+#endif
 }
 
 void loop() {
