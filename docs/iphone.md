@@ -16,7 +16,7 @@ AppleはiPhone 15以降から小型機器へ最大4.5 Wの給電を案内して�
 1. 基板をMacへUSB接続し、Arduino IDEで[../firmware/wifi_camera/wifi_camera.ino](../firmware/wifi_camera/wifi_camera.ino)を開きます。同じフォルダのヘッダも必要です。リポジトリのフォルダごと使用してください。
 2. ボードを`XIAO_ESP32C3`、`USB CDC On Boot`を`Enabled`、ポートを基板のUSBポートに設定し、書き込みます。ESP32ボードパッケージ**3.3.12**でコンパイル確認しています。追加ライブラリのインストールは不要です。
 3. 最初はMacで給電したまま、iPhoneの「設定 → Wi-Fi」で**ThermalCam**を選び、パスワード**thermalcam**を入力します。SSIDとパスワードはスケッチ先頭の`AP_SSID`・`AP_PASSWORD`で変更できます（パスワードは8〜63文字）。
-4. このWi-Fiはインターネットにつながりません。接続を維持する選択肢が出たら維持し、Safariのアドレス欄に**`http://192.168.4.1`**を入力します。検索欄へ単にIPを検索するのではなく、`http://`付きで開いてください。
+4. 以下はHTTPモードの手順です。証明書を生成した場合は[HTTPS・カメラの設定手順](camera.md)へ進みます。このWi-Fiはインターネットにつながりません。接続を維持する選択肢が出たら維持し、Safariのアドレス欄に**`http://192.168.4.1`**を入力します。検索欄へ単にIPを検索するのではなく、`http://`付きで開いてください。
 5. 「接続済み · ライブ表示」と熱画像が出て、手を近づけると温度が変わることを確認します。
 6. 書き込み完了後にMacからUSBを抜き、iPhoneとXIAOをUSB-Cケーブルで直接接続します。起動を数秒待ち、Wi-Fiへ再接続して同じURLを開きます。これでMacなしで表示できます。
 
@@ -54,7 +54,7 @@ ESP32コアに含まれるWi-FiとESP-IDFのHTTP/WebSocketサーバを使い、H
 
 XIAO向けコンパイル、C++からJavaScriptへのパケット変換、模擬WebSocketを使った画面の確認を行っています。利用者から書き込みとMacでの表示成功の報告があります。**iPhoneのSafariでの表示とiPhoneからの給電・連続動作は未確認です。** 元の[USBシリアル版](../firmware/serial_stream/serial_stream.ino)へ戻す場合は、そのスケッチを書き込み直せます。
 
-この版は熱画像表示までです。iPhoneの可視光カメラとの合成には、Safariでカメラを使用できるHTTPS構成などが別途必要になります。
+iPhoneの可視光カメラと重ねる場合は、[HTTPS・カメラの設定手順](camera.md)を行います。HTTPでの熱画像表示は従来どおり使えます。
 
 ## Web画面の変更とローカル確認
 
